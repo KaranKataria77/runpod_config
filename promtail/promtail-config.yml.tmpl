@@ -1,0 +1,19 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://localhost:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: vllm
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: vllm
+          model: __MODEL_SLUG__
+          __path__: __VLLM_LOG_PATH__
