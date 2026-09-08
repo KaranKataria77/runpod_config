@@ -44,18 +44,20 @@ tmux kill-session -t vllm 2>/dev/null || true
 pkill -f "vllm serve Qwen/Qwen3.8-27B" 2>/dev/null || true
 sleep 1
 
-tmux new-session -d -s vllm -n vllm-server "\
+tmux new -d -s vllm "\
 export VLLM_USE_FLASHINFER_SAMPLER=0; \
 export HF_HOME=$HF_HOME; \
 export VLLM_API_KEY=$VLLM_API_KEY; \
-vllm serve Qwen/Qwen3.8-27B \
+setsid vllm serve Qwen/Qwen3.8-27B \
   --host 0.0.0.0 \
   --port 8000 \
   --tensor-parallel-size 4 \
   --api-key \$VLLM_API_KEY \
   --download-dir /workspace/models \
   --max-model-len 8192 \
-  2>&1 | tee -a $VLLM_LOG_PATH"
+  2>&1 | tee -a $VLLM_LOG_PATH; \
+echo '--- vllm serve exited (see above, or $VLLM_LOG_PATH, for details) ---'; \
+exec bash"
 
 # --- Monitoring stack (Prometheus, Loki, Promtail, Grafana) ---
 
@@ -99,39 +101,45 @@ providers:
       path: $SCRIPT_DIR/grafana/dashboards
 EOF
 
-# tmux's kill-session sends SIGHUP, which these binaries don't always honor,
-# so they can survive as orphans holding their ports across restarts.
+# These binaries don't always die cleanly on restart, so make sure nothing
+# is left over from a previous run holding the ports.
 pkill -f "$BIN_DIR/prometheus/prometheus " 2>/dev/null || true
 pkill -f "$BIN_DIR/loki/loki " 2>/dev/null || true
 pkill -f "$BIN_DIR/promtail/promtail " 2>/dev/null || true
 pkill -f "homepath=$BIN_DIR/grafana" 2>/dev/null || true
 sleep 1
 
-tmux new-window -t vllm -n prometheus \
-  "$BIN_DIR/prometheus/prometheus \
-    --config.file=$DATA_DIR/prometheus.yml \
-    --storage.tsdb.path=$DATA_DIR/prometheus \
-    --web.listen-address=:9090"
+mkdir -p "$DATA_DIR/logs"
 
-tmux new-window -t vllm -n loki \
-  "LOKI_PATH_PREFIX=$DATA_DIR/loki $BIN_DIR/loki/loki \
-    -config.file=$SCRIPT_DIR/loki/loki-config.yml \
-    -config.expand-env=true"
+nohup "$BIN_DIR/prometheus/prometheus" \
+  --config.file="$DATA_DIR/prometheus.yml" \
+  --storage.tsdb.path="$DATA_DIR/prometheus" \
+  --web.listen-address=:9090 \
+  > "$DATA_DIR/logs/prometheus.log" 2>&1 &
+disown
 
-tmux new-window -t vllm -n promtail \
-  "$BIN_DIR/promtail/promtail -config.file=$DATA_DIR/promtail-config.yml"
+LOKI_PATH_PREFIX="$DATA_DIR/loki" nohup "$BIN_DIR/loki/loki" \
+  -config.file="$SCRIPT_DIR/loki/loki-config.yml" \
+  -config.expand-env=true \
+  > "$DATA_DIR/logs/loki.log" 2>&1 &
+disown
 
-tmux new-window -t vllm -n grafana \
-  "GF_PATHS_DATA=$DATA_DIR/grafana/data \
-   GF_PATHS_LOGS=$DATA_DIR/grafana/logs \
-   GF_PATHS_PLUGINS=$DATA_DIR/grafana/plugins \
-   GF_PATHS_PROVISIONING=$DATA_DIR/grafana/provisioning \
-   GF_SECURITY_ADMIN_USER=admin \
-   GF_SECURITY_ADMIN_PASSWORD=$GF_ADMIN_PASSWORD \
-   GF_AUTH_ANONYMOUS_ENABLED=false \
-   $BIN_DIR/grafana/bin/grafana-server --homepath=$BIN_DIR/grafana"
+nohup "$BIN_DIR/promtail/promtail" -config.file="$DATA_DIR/promtail-config.yml" \
+  > "$DATA_DIR/logs/promtail.log" 2>&1 &
+disown
 
-echo "vLLM + monitoring stack starting in tmux session 'vllm' (windows: vllm-server, prometheus, loki, promtail, grafana)."
-echo "Attach with: tmux attach -t vllm  (Ctrl+b then window number to switch, Ctrl+b d to detach)"
+GF_PATHS_DATA="$DATA_DIR/grafana/data" \
+GF_PATHS_LOGS="$DATA_DIR/grafana/logs" \
+GF_PATHS_PLUGINS="$DATA_DIR/grafana/plugins" \
+GF_PATHS_PROVISIONING="$DATA_DIR/grafana/provisioning" \
+GF_SECURITY_ADMIN_USER=admin \
+GF_SECURITY_ADMIN_PASSWORD="$GF_ADMIN_PASSWORD" \
+GF_AUTH_ANONYMOUS_ENABLED=false \
+nohup "$BIN_DIR/grafana/bin/grafana-server" --homepath="$BIN_DIR/grafana" \
+  > "$DATA_DIR/logs/grafana.log" 2>&1 &
+disown
+
+echo "vLLM starting in tmux session 'vllm'. Attach with: tmux attach -t vllm"
+echo "Prometheus, Loki, Promtail, and Grafana are running as background processes (logs in $DATA_DIR/logs/)."
 echo "API key saved to $VLLM_API_KEY_FILE"
 echo "Prometheus: http://<pod-host>:9090   Grafana: http://<pod-host>:3000"
