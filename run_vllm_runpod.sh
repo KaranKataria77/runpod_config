@@ -24,9 +24,7 @@ if [ -n "${MISSING:-}" ]; then
 fi
 
 python3 -c "import vllm" 2>/dev/null || pip install -q vllm
-python3 -c "import flashinfer" 2>/dev/null || pip install -q -U flashinfer-python
 
-export VLLM_USE_FLASHINFER_SAMPLER=0
 export HF_HOME=/workspace/hf_cache
 export VLLM_API_KEY=$(openssl rand -hex 32)
 VLLM_API_KEY_FILE=/workspace/vllm_api_key.txt
@@ -45,6 +43,7 @@ pkill -f "vllm serve Qwen/Qwen3.8-27B" 2>/dev/null || true
 sleep 1
 
 tmux new -d -s vllm "\
+pip install -U flashinfer-python; \
 export VLLM_USE_FLASHINFER_SAMPLER=0; \
 export HF_HOME=$HF_HOME; \
 export VLLM_API_KEY=$VLLM_API_KEY; \
