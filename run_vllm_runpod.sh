@@ -2,6 +2,7 @@
 set -euo pipefail
 
 : "${GF_ADMIN_PASSWORD:?set GF_ADMIN_PASSWORD before running, e.g. GF_ADMIN_PASSWORD=mysecret ./run_vllm_runpod.sh}"
+: "${NUM_GPUS:?set NUM_GPUS before running, e.g. NUM_GPUS=4 GF_ADMIN_PASSWORD=mysecret ./run_vllm_runpod.sh}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="$SCRIPT_DIR/bin"
@@ -50,7 +51,7 @@ export VLLM_API_KEY=$VLLM_API_KEY; \
 setsid vllm serve Qwen/Qwen3.8-27B \
   --host 0.0.0.0 \
   --port 8000 \
-  --tensor-parallel-size 4 \
+  --tensor-parallel-size $NUM_GPUS \
   --api-key \$VLLM_API_KEY \
   --download-dir /workspace/models \
   --max-model-len 8192 \
