@@ -15,5 +15,5 @@ scrape_configs:
           - localhost
         labels:
           job: vllm
-          model: __MODEL_SLUG__
-        __path__: __VLLM_LOG_PATH__
+          model: qwen3.8-27b
+          __path__: /var/log/vllm.log
